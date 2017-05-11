@@ -43,7 +43,6 @@ else
 end
 % End initialization code - DO NOT EDIT
 
-
 % --- Executes just before verify is made visible.
 function verify_OpeningFcn(hObject, eventdata, handles, varargin)
 % This function has no output args, see OutputFcn.
@@ -100,7 +99,7 @@ guidata(hObject, handles);
    
 % --- Executes on button press in input_folder_btn.
 function input_folder_btn_Callback(hObject, eventdata, handles)
-input_folder_name = uigetdir('D:\OCR');
+input_folder_name = uigetdir('C:\Users\E113\Documents\WORK\H_IM');
 %stop if the user press cancel or close the dialog box
 if input_folder_name == 0
     return;
@@ -205,6 +204,8 @@ posc = char_pos(1,:,char_index); % 1rst row, all col, 1rst layer
 xlim([posc(1)-5 posc(3)+5]);
 ylim([posc(2)-5 posc(4)+5]);
 handles.char_rect_focus = rectangle('Position',position, 'EdgeColor','r');
+
+colormap gray;
 
 %update info displayed on the gui
 set(handles.posfilename_label, 'String', charfname);
@@ -394,6 +395,10 @@ switch eventdata.Key
         imfname = fullfile(handles.input_folder_name, 'error', name);
         saveas(gcf, imfname);
         msgbox('Operation Completed','Success', 'modal');
+    case 'o'
+        imfname = fullfile(handles.input_folder_name, handles.src_im(handles.file_index).name);
+        imfname = strcat(imfname(1:end-7), '.bmp');
+        winopen(imfname);
 end
 
 function jumpto(hObject, handles, idx)
@@ -547,10 +552,13 @@ jumpto(hObject, handles, idx);
 
 function erase(hObject)
 handles = guidata(hObject);
-imfname = fullfile(handles.input_folder_name, handles.src_im(handles.file_index).name);
+imfname_bw = fullfile(handles.input_folder_name, handles.src_im(handles.file_index).name);
+
+%colored image filename (imfname)
+imfname = strcat(imfname_bw(1:end-7), '.bmp');
 
 figure;
-handles.h_im = imshow(handles.h_char.CData);
+handles.h_im = imshow(imfname);
 
 %get and apply the xylimit from handles.char_axis to the ca
 ax = ancestor(handles.h_im, 'axes');
@@ -561,11 +569,11 @@ rect = rectangle('Position', [0 0 0 0]);
 setappdata(gcf, 'handles', handles);
 
 %set callback on the figure
-set(gcf,'WindowButtonDownFcn',{@erase_wbd, rect, imfname});
+set(gcf,'WindowButtonDownFcn',{@erase_wbd, rect, imfname, imfname_bw});
 set(gcf,'CloseRequestFcn',{@erase_close});
 
 %erase_wbd function
-function erase_wbd(hObject, eventdata, rect, imfname)
+function erase_wbd(hObject, eventdata, rect, imfname, imfname_bw)
 points = get(gca, 'CurrentPoint');
 points = [points(1, 1), points(1, 2)];
 
@@ -573,7 +581,7 @@ x=round(points(1));
 y=round(points(2));
 
 set(gcf,'WindowButtonMotionFcn',{@erase_wbm, x, y, rect})
-set(gcf,'WindowButtonUpFcn',{@erase_wbu, rect, imfname})
+set(gcf,'WindowButtonUpFcn',{@erase_wbu, rect, imfname, imfname_bw})
 
 %erase_wbm function
 function erase_wbm(h,evd, x, y, rect)
@@ -598,7 +606,7 @@ y= y + 0.5;
 rect.Position = [points abs(x-points(1)) abs(y-points(2))];
 
 %erase_wbu function
-function erase_wbu(hObject,evd, rect, imfname)
+function erase_wbu(hObject,evd, rect, imfname, imfname_bw)
 % executes when the mouse button is released
 handles = getappdata(gcf, 'handles');
 
@@ -609,21 +617,24 @@ x2 = x1 + pos(3)-1;
 y2 = y1 + pos(4)-1;
 handles.current_im(y1:y2, x1:x2) = 1;
 
-handles.h_im.CData = handles.current_im;
+handles.h_im.CData(y1:y2, x1:x2, 1) = 255;
+handles.h_im.CData(y1:y2, x1:x2, 2) = 255;
+handles.h_im.CData(y1:y2, x1:x2, 3) = 255;
+
 handles.h_char.CData = handles.current_im;
 handles.h_section.CData = handles.current_im;
 
-imwrite(handles.current_im, imfname);
+imwrite(handles.h_im.CData, imfname);
+imwrite(handles.current_im, imfname_bw);
+
 set(gcf,'WindowButtonMotionFcn','')
 set(gcf,'WindowButtonUpFcn','')
 setappdata(gcf, 'handles', handles);
-
 
 function erase_close(hObject,evd)
 handles = getappdata(gcf, 'handles');
 delete(gcf);
 guidata(verify, handles);
-
 
 % --- Executes on key press with focus on pagenum and none of its controls.
 function pagenum_KeyPressFcn(hObject, eventdata, handles)
