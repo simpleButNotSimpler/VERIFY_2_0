@@ -14,7 +14,7 @@ new_positions = gen_new_positions(real_positions, padding);
 %build the image
 row = max(new_positions(:,4));
 col = max(new_positions(:,3));
-new_im = ones(row, col)*255;
+new_im = ones(row, col);
 
 %add the chars
 for t=1:20
@@ -32,8 +32,8 @@ for t=1:20
         
     %update the output image
     if ~ismember(t, zvr_idx)
-        new_im(out_y1:out_y2, out_x1:out_x2) = orig_ima(in_y1:in_y2, in_x1:in_x2)*255;
+        new_im(out_y1:out_y2, out_x1:out_x2) = orig_ima(in_y1:in_y2, in_x1:in_x2);
     else
-       new_im(out_y1:out_y2, out_x1:out_x2) = dummy_pic(51)*255;
+       new_im(out_y1:out_y2, out_x1:out_x2) = dummy_pic(51);
     end
 end

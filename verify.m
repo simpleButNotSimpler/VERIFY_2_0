@@ -22,7 +22,7 @@ function varargout = verify(varargin)
 
 % Edit the above text to modify the response to help verify
 
-% Last Modified by GUIDE v2.5 25-Apr-2017 22:55:59
+% Last Modified by GUIDE v2.5 04-Jun-2017 23:12:44
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -89,6 +89,10 @@ handles = guidata(hObject);
 % set(handles.output_folder_btn, 'Enable', 'on');
 guidata(hObject, handles);
 
+
+%************************************************%
+%======================VIEWS=====================%
+%************************************************%
 %function to initialize the parameters
 function initView(hObject, handles)
 %retrieve the files
@@ -117,6 +121,16 @@ if isnan(index)
     index = 1;
 end
 
+%load dictionary
+fid = fopen('dictionary.txt', 'r', 'n', 'UTF-8');
+book = textscan(fid, '%s %d %d');
+fclose(fid);
+
+dictio.section = book{1, 3};
+dictio.page = book{1, 2};
+dictio.words = book{1, 1};
+handles.dictio = dictio;
+
 %initialize some gui objects
 handles.src_im = src_im;
 handles.src_anchor_pos = src_anchor_pos;
@@ -128,6 +142,7 @@ handles.section_view = 1;
 setView(hObject, handles);
 handles = guidata(hObject);
 set(handles.goto, 'Enable', 'on');
+set(handles.char_search_btn, 'Enable', 'on');
 set(gcf,'KeyPressFcn',@keypressed_callback);
 
 guidata(hObject, handles);
@@ -143,6 +158,9 @@ handles.section_index = 1;
 charfname = handles.src_anchor_pos(index).name;
 posfname = fullfile(handles.input_folder_name, charfname);
 imfname = fullfile(handles.input_folder_name, handles.src_im(index).name);
+
+%colored image filename (imfname)
+handles.imfname_colored = strcat(imfname(1:end-7), '.bmp');
 
 %center points of the anchors
 [anchors, all_real_positions, main_rect_pos] = pointsFromFile(posfname);
@@ -165,7 +183,7 @@ handles.char_index = 1;
 %plot to char_axis and main axis
 orig_ima = imread(imfname);
 handles.h_char = imagesc(orig_ima, 'Parent', handles.char_axes);
-h = imshow(orig_ima, 'Parent', handles.main_axes);
+handles.h_main = imshow(orig_ima, 'Parent', handles.main_axes);
 
 handles.char_rect = rectangle(handles.char_axes, 'Position',[0 0 0 0], 'EdgeColor','r');
 handles.selected_char_rect = rectangle(handles.section_axes, 'Position',[0 0 0 0], 'EdgeColor','b');
@@ -177,6 +195,17 @@ handles = guidata(hObject);
 
 %set callbacks
 set(handles.h_char, 'ButtonDownFcn',@adjustBox);
+set(handles.h_main, 'ButtonDownFcn',@main_axis_callback);
+
+%set context menu
+cm = uicontextmenu(gcf);
+
+% Create child menu items for the uicontextmenu
+m1 = uimenu(cm,'Label','Noise removal','Callback',@erase);
+m2 = uimenu(cm,'Label','Set position','Callback',@addPos);
+m3 = uimenu(cm,'Label','open image (24 bits)','Callback',{@open_im handles, 1});
+m4 = uimenu(cm,'Label','open image (1 bit)','Callback',{@open_im, handles, 0});
+set(gcf, 'UIContextMenu', cm);
 
 guidata(hObject, handles);
 
@@ -192,6 +221,7 @@ positions = [positions(:, [1 2]) - padding, positions(:, [3 4]) + padding];
 %gen a new image
 [im, new_positions] = gen_new_im(handles.h_char.CData, positions, padding);
 handles.new_positions = new_positions;
+% handles.gen_im = im;
 
 %------------------------------------
 %====================================
@@ -202,6 +232,10 @@ handles.main_rect.Position = handles.main_rect_pos(section_index,:);
 %plot to section_axes
 axes(handles.section_axes);
 handles.h_section = imagesc(im);
+handles.h_section.HitTest = 'off';
+handles.section_axes.HitTest = 'off';
+
+colormap default;
 
 %plot the rectangles
 rect_position = [new_positions(:, [1 2]) + padding, new_positions(:, [3 4]) - padding];
@@ -212,9 +246,33 @@ handles.char_index = 1;
 setCharView(hObject, handles)
 handles = guidata(hObject);
 
-set(handles.h_section, 'ButtonDownFcn',@section_axis_callback);
+set(gcf, 'ButtonDownFcn',@section_axis_callback);
 guidata(hObject, handles)
 
+function setCharView(hObject, handles)
+char_index = handles.char_index;
+section_index = handles.section_index;
+
+char_pos = handles.all_real_positions(char_index,:, section_index);
+
+%set limit on char view
+axes(handles.char_axes);
+posc = char_pos;
+xlim([posc(1)-5 posc(3)+5]);
+ylim([posc(2)-5 posc(4)+5]);
+
+%set the position of the draggables on the char_view
+handles.char_rect.Position = points2rect(char_pos);
+
+handles.sect_rects(char_index).EdgeColor = [0 1 1];
+
+guidata(hObject, handles);
+%======================VIEWS_(END)=====================%
+
+
+%****************************************************%
+%======================POSITIONS=====================%
+%****************************************************%
 function [anchor, char_pos, main_rect_pos] = pointsFromFile(filepath)
 char_pos = zeros(20, 4, 3); % 3 layers position file
 
@@ -248,24 +306,46 @@ main_rect_pos(3, :) = [anchor(3, 1) anchor(3, 2) anchor(7, 1)-anchor(3, 1) ancho
 
 fclose(fileid);
 
-function setCharView(hObject, handles)
-char_index = handles.char_index;
-section_index = handles.section_index;
+function position = points2rect(points)
+points(1, [1 2]) = points(1, [1 2]) - 0.5;
+points(1, [3 4]) = points(1, [3 4]) + 0.5;
 
-char_pos = handles.all_real_positions(char_index,:, section_index);
+%rectangular coodinates
+position = [points(1) points(2) points(3)-points(1)  points(4)-points(2)];
 
-%set limit on char view
-axes(handles.char_axes);
-posc = char_pos;
-xlim([posc(1)-5 posc(3)+5]);
-ylim([posc(2)-5 posc(4)+5]);
+function position = rect2points(points)
+point_start = points(1, [1 2]);
+point_end = point_start + points(1, [3 4]);
 
-%set the position of the draggables on the char_view
-handles.char_rect.Position = points2rect(char_pos);
+%rectangular coodinates
+position = [point_start + 0.5, point_end - 0.5];
 
-handles.sect_rects(char_index).EdgeColor = 'b';
+function [x, y]  = swap(x1, y1)
+x = y1;
+y = x1;
 
-guidata(hObject, handles);
+function idx = closestPoint(char_pos, point)
+point = round(point);
+temp = char_pos(:,:,1);
+temp = [temp(:,1) temp(:,2)];
+row = size(temp, 1);
+point = repmat(point, row, 1);
+
+point = temp - point;
+point = sqrt(sum(point.^2, 2));
+
+[~, idx] = min(point);
+
+%get the closest rectangle
+function idx = closestRect(char_pos, point)
+point = round(point);
+row = size(char_pos, 1);
+point = repmat(point, row, 1);
+
+point = [point - char_pos(:,1:2), char_pos(:,3:4) - point];
+point = point>=0;
+point = sum(point, 2);
+idx = find(point == 4);
 
 %save the position of the character in a file
 function savePosition(filepath, anchor, pos)
@@ -301,6 +381,22 @@ fprintf(fileid, '\r\nunicode_brightness: %s_%s \r\n', uni3, deg);
 fprintf(fileid, ' %2d : ( %4d , %4d ) , ( %4d , %4d )\r\n', pos3);
 
 fclose(fileid);
+%======================POSITIONS_(END)=====================%
+
+
+%************************************************%
+%====================CALLBACKS===================%
+%************************************************%
+
+%callback to open image file
+function open_im(hObject, evd, handles, colored)
+if colored
+    winopen(handles.imfname_colored);
+    return
+end
+
+winopen(handles.imfname);
+
 
 %callback for keypress
 function keypressed_callback(hObject, eventdata)
@@ -354,32 +450,39 @@ switch eventdata.Key
         handles.char_index = char_index - 1;
         setCharView(hObject, handles);
     case 'e'
-        erase(hObject);
+        erase(hObject, eventdata);
     case 'o'
         imfname = fullfile(handles.input_folder_name, handles.src_im(handles.file_index).name);
         imfname = strcat(imfname(1:end-7), '.bmp');
         winopen(imfname);
+    case 'p'
+        char_index = handles.char_index;
+        addPos(hObject, eventdata);
+        handles = guidata(hObject);
+        handles.char_index = char_index;
+        setCharView(hObject, handles);
 end
-  
-function position = points2rect(points)
-points(1, [1 2]) = points(1, [1 2]) - 0.5;
-points(1, [3 4]) = points(1, [3 4]) + 0.5;
 
-%rectangular coodinates
-position = [points(1) points(2) points(3)-points(1)  points(4)-points(2)];
+%click event on the section axis
+function main_axis_callback(hObject, eventdata)
+handles = guidata(gcbo);
+point = get(handles.main_axes, 'CurrentPoint');
+point = [point(1, 1) point(1, 2)];
 
-function idx = closestPoint(char_pos, point)
-point = round(point);
-temp = char_pos(:,:,1);
-temp = [temp(:,1) temp(:,2)];
-row = size(temp, 1);
-point = repmat(point, row, 1);
+points_db = rect2points(handles.main_rect_pos(1,:));
+points_db = [points_db; rect2points(handles.main_rect_pos(2,:))];
+points_db = [points_db; rect2points(handles.main_rect_pos(3,:))];
 
-point = temp - point;
-point = sqrt(sum(point.^2, 2));
+idx = closestRect(points_db, point);
 
-[~, idx] = min(point);
+if isempty(idx)
+   return
+end
 
+handles.section_index = idx;
+setSectionView(hObject, handles);
+
+%click event on the section axis
 function section_axis_callback(hObject, eventdata)
 handles = guidata(gcbo);
 point = get(handles.section_axes, 'CurrentPoint');
@@ -395,17 +498,37 @@ handles.char_index = idx;
 
 setCharView(hObject, handles);
 
-%get the closest rectangle
-function idx = closestRect(char_pos, point)
-point = round(point);
-row = size(char_pos, 1);
-point = repmat(point, row, 1);
+% --- Executes on button press in goto.
+function goto_Callback(hObject, eventdata)
+% hObject    handle to goto (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles structure with handles and user data (see GUIDATA)
+% set(gcf, 'units','normalized','outerposition',[0 0 1 1]);
 
-point = [point - char_pos(:,1:2), char_pos(:,3:4) - point];
-point = point>=0;
-point = sum(point, 2);
-idx = find(point == 4);
+handles = guidata(hObject);
 
+idx = get(handles.pagenum, 'String');
+idx = str2double(idx);
+if isnan(idx)
+   idx=1; 
+end
+
+idx = round(idx);
+if idx < 1
+    idx = 1;
+elseif idx > handles.file_index_max-1
+    idx = handles.file_index_max-1;
+end
+
+% savePosition(hObject, handles);
+handles.file_index = idx;
+%save fileindex
+fileid = fopen(fullfile(handles.input_folder_name, 'config.txt'), 'w');
+fprintf(fileid, '%d', idx);
+fclose(fileid);
+setView(hObject, handles);
+
+%**************ADJUSTBOX****************%
 %function to move the box
 function adjustBox(hObject, eventdata)
 handles = guidata(gcbo);
@@ -452,10 +575,10 @@ elseif points(1) > x
     [points(1), x] = swap(points(1), x);
 end
 
-%ajust the point to the ege of the image pixels
+%ajust the point to the edge of the image pixels
     points = points-0.5;
-    x = x + 0.5;
-    y= y + 0.5;
+    x = x+0.5;
+    y= y+0.5;
 
 rect.Position = [points abs(x-points(1)) abs(y-points(2))];
 
@@ -463,16 +586,22 @@ rect.Position = [points abs(x-points(1)) abs(y-points(2))];
 function wbu(hObject,evd, idx, layer)
 handles = guidata(hObject);
 % executes when the mouse button is released
-char_pos = handles.char_rect.Position;
+new_rect_pos = handles.char_rect.Position;
+old_rect_pos = points2rect(handles.all_real_positions(idx,:,layer));
 
-temp = [char_pos(1)+0.5 char_pos(2)+0.5 char_pos(1)+char_pos(3)-0.5 char_pos(2)+char_pos(4)-0.5];
+new_points = rect2points(new_rect_pos);
+old_points = rect2points(old_rect_pos);
 
-handles.all_real_positions(idx,:,layer) = temp;
+displacement = new_points - old_points;
 
-%=========TODO=========
-%manipulate char_pos to match the new position
-%char_pos = ???
-handles.sect_rects(idx).Position = char_pos;
+old_mod_rect_pos = handles.sect_rects(idx).Position;
+new_mod_points = rect2points(old_mod_rect_pos) + displacement;
+
+%update the positions arrays
+handles.all_real_positions(idx,:,layer) = new_points;
+
+handles.sect_rects(idx).Position = points2rect(new_mod_points);
+handles.new_positions(idx,:) = new_mod_points;
 
 %save the position
 savePosition(handles.posfname, handles.anchors, handles.all_real_positions);
@@ -480,60 +609,16 @@ savePosition(handles.posfname, handles.anchors, handles.all_real_positions);
 set(gcf,'WindowButtonMotionFcn','')
 set(gcf,'WindowButtonUpFcn','') 
 guidata(hObject, handles);
+%**************ADJUSTBOX_(END)****************%
 
-function [x, y]  = swap(x1, y1)
-x = y1;
-y = x1;
 
-% --- Executes during object creation, after setting all properties.
-function pagenum_CreateFcn(hObject, eventdata, handles)
-% hObject    handle to pagenum (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    empty - handles not created until after all CreateFcns called
-
-% Hint: edit controls usually have a white background on Windows.
-%       See ISPC and COMPUTER.
-if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
-    set(hObject,'BackgroundColor','white');
-end
-
-% --- Executes on button press in goto.
-function goto_Callback(hObject, eventdata)
-% hObject    handle to goto (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles structure with handles and user data (see GUIDATA)
-% set(gcf, 'units','normalized','outerposition',[0 0 1 1]);
-
+%**************ERASE****************%
+function erase(hObject, evd)
 handles = guidata(hObject);
-
-idx = get(handles.pagenum, 'String');
-idx = str2double(idx);
-if isnan(idx)
-   idx=1; 
-end
-
-idx = round(idx);
-if idx < 1
-    idx = 1;
-elseif idx > handles.file_index_max-1
-    idx = handles.file_index_max-1;
-end
-
-% savePosition(hObject, handles);
-handles.file_index = idx;
-%save fileindex
-fileid = fopen(fullfile(handles.input_folder_name, 'config.txt'), 'w');
-fprintf(fileid, '%d', idx);
-fclose(fileid);
-setView(hObject, handles);
-
-
-function erase(hObject)
-handles = guidata(hObject);
-imfname_bw = fullfile(handles.input_folder_name, handles.src_im(handles.file_index).name);
+imfname_bw = handles.imfname;
 
 %colored image filename (imfname)
-imfname = strcat(imfname_bw(1:end-7), '.bmp');
+imfname = handles.imfname_colored;
 
 figure;
 handles.h_im = imshow(imfname);
@@ -543,7 +628,7 @@ ax = ancestor(handles.h_im, 'axes');
 ax.XLim = handles.char_axes.XLim;
 ax.YLim = handles.char_axes.YLim;
 
-rect = rectangle('Position', [0 0 0 0]);
+rect = rectangle('Position', [0 0 0 0], 'EdgeColor', 'r');
 setappdata(gcf, 'handles', handles);
 
 %set callback on the figure
@@ -593,17 +678,17 @@ x1 = pos(1)+0.5;
 y1 = pos(2)+0.5;
 x2 = x1 + pos(3)-1;
 y2 = y1 + pos(4)-1;
-handles.current_im(y1:y2, x1:x2) = 1;
 
+%updte the images
+handles.h_char.CData(y1:y2, x1:x2) = 1; %binary image
+
+%colored image
 handles.h_im.CData(y1:y2, x1:x2, 1) = 255;
 handles.h_im.CData(y1:y2, x1:x2, 2) = 255;
 handles.h_im.CData(y1:y2, x1:x2, 3) = 255;
 
-handles.h_char.CData = handles.current_im;
-handles.h_section.CData = handles.current_im;
-
 imwrite(handles.h_im.CData, imfname);
-imwrite(handles.current_im, imfname_bw);
+imwrite(handles.h_char.CData, imfname_bw);
 
 set(gcf,'WindowButtonMotionFcn','')
 set(gcf,'WindowButtonUpFcn','')
@@ -613,7 +698,148 @@ function erase_close(hObject,evd)
 handles = getappdata(gcf, 'handles');
 delete(gcf);
 guidata(verify, handles);
+%**************ERASE(END)****************%
 
+
+%**************ADDPOS****************%
+function addPos(hObject, evt)
+handles = guidata(hObject);
+
+%required data
+char_index = handles.char_index;
+section_index = handles.section_index;
+
+%display the image
+figure, handles.edited_im = imshow(handles.h_char.CData);
+
+%AXIS LIMITS
+%section limit
+section_pos = handles.main_rect_pos(section_index, :);
+xlim([section_pos(1) section_pos(3)+section_pos(1)-450]);
+ylim([section_pos(2) section_pos(2)+section_pos(4)-100]);
+
+%get a reference point from the user
+try
+    [x, y] = ginput;
+catch me
+    return;
+end
+x = x(end);
+y = y(end);
+limit = [round([x y])-50 round([x y])+50];
+handles.all_real_positions(char_index,:,section_index) = limit;
+
+x_limit = [limit(1)-2 limit(3)+2];
+y_limit = [limit(2)-2 limit(4)+2];
+xlim(x_limit);
+ylim(y_limit);
+
+%draw rectangle
+pos1 = [limit(1) limit(2)]-0.5;
+pos2 = [abs(limit(1)-limit(3)) abs(limit(2)-limit(4))] + 1;
+handles.adjusted_rect = rectangle('Position', [pos1 pos2],'EdgeColor', 'r');
+
+colormap gray;
+
+title(gca, 'Box Adjustment');
+
+setappdata(gcf, 'handles', handles);
+
+%set callback on the figure
+set(gcf,'WindowButtonDownFcn',{@addpos_wbd, handles.adjusted_rect});
+set(gcf,'CloseRequestFcn',{@addpos_app_close});
+
+%addpos_app_wbd function
+function addpos_wbd(hObject, eventdata, rect)
+
+%==========char_pos===========
+pos = rect.Position;
+x1 = pos(1)+0.5;
+y1 = pos(2)+0.5;
+x2 = x1 + pos(3)-1;
+y2 = y1 + pos(4)-1;
+char_pos = [x1 y1 x2 y2];
+
+cp = get(gca, 'CurrentPoint');
+cp = [cp(1, 1) cp(1, 2)];
+cp = round(cp);
+
+temp1 = char_pos(1, [1 2]);
+temp2 = char_pos(1, [3 4]);
+
+d1 = sqrt(sum((temp1-cp).^2, 2));
+d2 = sqrt(sum((temp2-cp).^2, 2));
+
+if d1 > d2
+    x = temp1(1);
+    y = temp1(2);
+else
+    x = temp2(1);
+    y = temp2(2);
+end
+
+set(gcf,'WindowButtonMotionFcn',{@addpos_wbm, x, y, rect})
+set(gcf,'WindowButtonUpFcn',{@addpos_wbu})
+
+%addpos_app_wbm function
+function addpos_wbm(h,evd, x, y, rect)
+% executes while the mouse moves
+points = get(gca, 'CurrentPoint');
+points = [points(1, 1), points(1, 2)];
+points = round(points);
+
+if points(1) > x && points(2) > y
+    [points(1), x] = swap(points(1), x);
+    [points(2), y] = swap(points(2), y);
+elseif points(2) > y
+    [points(2), y] = swap(points(2), y);
+elseif points(1) > x
+    [points(1), x] = swap(points(1), x);
+end
+
+points = points-0.5;
+x = x + 0.5;
+y= y + 0.5;
+
+rect.Position = [points abs(x-points(1)) abs(y-points(2))];
+
+%addpos_app_wbu function
+function addpos_wbu(hObject,evd)
+% executes when the mouse button is released
+handles = getappdata(gcf, 'handles');
+
+pos = handles.adjusted_rect.Position;
+pos = rect2points(pos);
+x1 = pos(1);
+y1 = pos(2);
+x2 = pos(3);
+y2 = pos(4);
+
+%update the position in char_pos
+section_index = handles.section_index;
+char_index = handles.char_index;
+handles.all_real_positions(char_index,:,section_index) = [x1 y1 x2 y2];
+
+%save positions
+savePosition(handles.posfname, handles.anchors, handles.all_real_positions);
+
+set(gcf,'WindowButtonMotionFcn','')
+set(gcf,'WindowButtonUpFcn','')
+setappdata(gcf, 'handles', handles);
+
+function addpos_app_close(hObject,evd)
+handles = getappdata(gcf, 'handles');
+delete(gcf);
+guidata(verify, handles);
+setSectionView(verify, handles)
+%**************ADDPOS_(END)****************%
+
+%====================CALLBACKS_(END)===================%
+
+
+%*******************************************************%
+%====================OBJECT_CREATIONS===================%
+%*******************************************************%
 % --- Executes on key press with focus on pagenum and none of its controls.
 function pagenum_KeyPressFcn(hObject, eventdata, handles)
 % hObject    handle to pagenum (see GCBO)
@@ -626,3 +852,56 @@ switch eventdata.Key
     case 'return'
         goto_Callback(verify, eventdata);
 end
+
+% --- Executes during object creation, after setting all properties.
+function pagenum_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to pagenum (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+%====================OBJECT_CREATIONS_(END)===================%
+
+function char_name_box_Callback(hObject, eventdata, handles)
+% hObject    handle to char_name_box (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of char_name_box as text
+%        str2double(get(hObject,'String')) returns contents of char_name_box as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function char_name_box_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to char_name_box (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes on button press in char_search_btn.
+function char_search_btn_Callback(hObject, eventdata, handles)
+searched_char = handles.char_name_box.String;
+[page, section] = getCharId(handles.dictio, searched_char);
+
+if isempty(page)
+    return;
+end
+
+%display the page and section
+handles.file_index = page;
+setView(hObject, handles);
+handles = guidata(hObject);
+
+handles.section_index = section;
+setSectionView(hObject, handles);
