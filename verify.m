@@ -258,8 +258,8 @@ char_pos = handles.all_real_positions(char_index,:, section_index);
 %set limit on char view
 axes(handles.char_axes);
 posc = char_pos;
-xlim([posc(1)-5 posc(3)+5]);
-ylim([posc(2)-5 posc(4)+5]);
+xlim([posc(1)-20 posc(3)+20]);
+ylim([posc(2)-20 posc(4)+20]);
 
 %set the position of the draggables on the char_view
 handles.char_rect.Position = points2rect(char_pos);
@@ -396,7 +396,6 @@ if colored
 end
 
 winopen(handles.imfname);
-
 
 %callback for keypress
 function keypressed_callback(hObject, eventdata)
@@ -676,7 +675,7 @@ handles = getappdata(gcf, 'handles');
 pos = rect.Position;
 x1 = pos(1)+0.5;
 y1 = pos(2)+0.5;
-x2 = x1 + pos(3)-1;
+x2 = x1 + pos(3)-1;  
 y2 = y1 + pos(4)-1;
 
 %updte the images
@@ -689,6 +688,27 @@ handles.h_im.CData(y1:y2, x1:x2, 3) = 255;
 
 imwrite(handles.h_im.CData, imfname);
 imwrite(handles.h_char.CData, imfname_bw);
+
+% %update the image on the section axis
+% idx= handles.char_index;
+% section_index = handles.section_index;
+% width = pos(3);
+% height = pos(4);
+% master_rect1 = points2rect(handles.all_real_positions(idx,:,section_index));
+% master_rect2 = pos;
+% deplacement = master_rect1(1, [1 2]) - master_rect2(1, [1 2]);
+% 
+% slave_rect1 = points2rect(handles.new_positions(idx,:));
+% slave_rect2 = slave_rect1(1, [1 2]) - deplacement;
+% slave_rect2 = [slave_rect2, width, height];
+% 
+% pos = rect2points(slave_rect2);
+% x1 = pos(1);
+% y1 = pos(2);
+% x2 = pos(3);
+% y2 = pos(4);
+% 
+% handles.h_section.CData(y1:y2, x1:x2) = 1;
 
 set(gcf,'WindowButtonMotionFcn','')
 set(gcf,'WindowButtonUpFcn','')
